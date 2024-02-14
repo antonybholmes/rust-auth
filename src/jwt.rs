@@ -2,6 +2,7 @@ use std::env;
 
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use rocket::{http::Status, request::FromRequest, request::Outcome, Request};
 use serde::{Deserialize, Serialize};
 
 use crate::{AuthError, AuthResult, AuthUser};
@@ -9,7 +10,7 @@ use crate::{AuthError, AuthResult, AuthUser};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims {
     pub user_id: String,
-    pub    email: String,
+    pub email: String,
     pub exp: usize,
 }
 
@@ -23,14 +24,42 @@ pub struct JWT {
     pub claims: Claims,
 }
 
-pub fn create_jwt(user: &AuthUser) -> AuthResult<String> {
-    let secret: String = env::var("JWT_SECRET").expect("JWT_SECRET must be set.");
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for JWT {
+    type Error = AuthError;
 
-    // 👇 New!
-    let expiration: i64 = Utc::now()
-        .checked_add_signed(chrono::Duration::hours(24))
-        .expect("Invalid timestamp")
-        .timestamp();
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        fn is_valid(key: &str) -> AuthResult<Claims> {
+            Ok(decode_jwt(String::from(key))?)
+        }
+
+        match req.headers().get_one("Authorization") {
+            None => Outcome::Error((
+                Status::Unauthorized,
+                AuthError::JWTError(format!("authorization header missing")),
+            )),
+            Some(key) => match is_valid(key) {
+                Ok(claims) => Outcome::Success(JWT { claims }),
+                Err(err) => Outcome::Error((Status::Unauthorized, err)),
+            },
+        }
+    }
+}
+
+fn secret() -> AuthResult<String> {
+    match env::var("JWT_SECRET") {
+        Ok(secret) => Ok(secret),
+        Err(_) => return Err(AuthError::JWTError(format!("secret error"))),
+    }
+}
+
+pub fn create_jwt(user: &AuthUser) -> AuthResult<String> {
+    let secret: String = secret()?;
+
+    let expiration: i64 = match Utc::now().checked_add_signed(chrono::Duration::hours(24)) {
+        Some(d) => d.timestamp(),
+        None => return Err(AuthError::JWTError(format!("invalid time"))),
+    };
 
     let claims: Claims = Claims {
         user_id: user.user_id.to_owned(),
@@ -38,7 +67,6 @@ pub fn create_jwt(user: &AuthUser) -> AuthResult<String> {
         exp: expiration as usize,
     };
 
-    // 👇 New!
     let header = Header::new(Algorithm::HS512);
 
     match encode(
@@ -47,13 +75,14 @@ pub fn create_jwt(user: &AuthUser) -> AuthResult<String> {
         &EncodingKey::from_secret(secret.as_bytes()),
     ) {
         Ok(jwt) => Ok(jwt),
-        Err(err) => Err(AuthError::JWTError(err.to_string())),
+        Err(_) => Err(AuthError::JWTError(format!("error encoding jwt"))),
     }
 }
 
 pub fn decode_jwt(token: String) -> AuthResult<Claims> {
-    let secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set.");
-    let token = token.trim_start_matches("Bearer").trim();
+    let secret: String = secret()?;
+
+    let token: &str = token.trim_start_matches("Bearer").trim();
 
     // 👇 New!
     match decode::<Claims>(
@@ -62,6 +91,17 @@ pub fn decode_jwt(token: String) -> AuthResult<Claims> {
         &Validation::new(Algorithm::HS512),
     ) {
         Ok(token) => Ok(token.claims),
-        Err(err) => Err(AuthError::JWTError(err.to_string())),
+        Err(err) => match &err.kind() {
+            jsonwebtoken::errors::ErrorKind::InvalidSignature => {
+                Err(AuthError::JWTError(format!("invalid jwt signature")))
+            }
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                Err(AuthError::JWTError(format!("expired jwt token")))
+            }
+            jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                Err(AuthError::JWTError(format!("invalid jwt token")))
+            }
+            _ => Err(AuthError::JWTError(format!("{}", err))),
+        },
     }
 }
