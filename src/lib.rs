@@ -135,7 +135,7 @@ impl UserDb {
             return Err(AuthError::UserAlreadyExistsError(user.email.clone()));
         }
 
-        let user_id = make_token();
+        let user_id = otp();
 
         let hash = match user.hash_password() {
             Ok(hash) => hash,
@@ -197,7 +197,7 @@ fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error
     })
 }
 
-pub fn make_token() -> String {
+pub fn otp() -> String {
     return Uuid::new_v4().hyphenated().to_string();
 }
 

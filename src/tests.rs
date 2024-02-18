@@ -9,6 +9,8 @@ use std::collections::HashMap;
  
 #[test]
 fn test_email() {
+    use crate::otp;
+
     sys::env::load();
 
     sys::env::ls();
@@ -19,8 +21,11 @@ fn test_email() {
         .register_template_file("email", "templates/email.html")
         .unwrap();
 
+    let code = otp();
+
     let mut data = HashMap::new();
-    data.insert("name", "Antony");
+    data.insert("name", "Antony" );
+    data.insert("code",&code);
 
     let body = handlebars.render("email", &data).unwrap();
 
