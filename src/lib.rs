@@ -8,7 +8,10 @@ use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 pub mod jwt;
+pub mod email;
 mod tests;
+
+
 
 const FIND_USER_BY_EMAIL_SQL: &'static str =
     r#"SELECT id, user_id, email, password FROM users WHERE users.email = ?1"#;
@@ -197,3 +200,4 @@ fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error
 pub fn make_token() -> String {
     return Uuid::new_v4().hyphenated().to_string();
 }
+

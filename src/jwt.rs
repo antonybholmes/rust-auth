@@ -20,12 +20,12 @@ pub struct JWTResp {
 }
 
 #[derive(Debug)]
-pub struct JWT {
+pub struct Jwt {
     pub claims: Claims,
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for JWT {
+impl<'r> FromRequest<'r> for Jwt {
     type Error = AuthError;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -39,7 +39,7 @@ impl<'r> FromRequest<'r> for JWT {
                 AuthError::JWTError(format!("authorization header missing")),
             )),
             Some(key) => match is_valid(key) {
-                Ok(claims) => Outcome::Success(JWT { claims }),
+                Ok(claims) => Outcome::Success(Jwt { claims }),
                 Err(err) => Outcome::Error((Status::Unauthorized, err)),
             },
         }
