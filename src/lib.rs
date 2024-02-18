@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 
 use uuid::Uuid;
@@ -69,26 +70,22 @@ impl AuthUser {
 }
 
 pub struct UserDb {
-    pool: r2d2::Pool<SqliteConnectionManager>,
+    pool: Pool<SqliteConnectionManager>,
 }
 
 impl UserDb {
     pub fn new(file: &str) -> AuthResult<Self> {
         let manager: SqliteConnectionManager = SqliteConnectionManager::file(file);
 
-        let pool: r2d2::Pool<SqliteConnectionManager> = match r2d2::Pool::builder().build(manager) {
+        let pool = match Pool::builder().build(manager) {
             Ok(pool) => pool,
-            Err(_) => {
-                return Err(AuthError::DatabaseError(
-                    "error getting connection".to_string(),
-                ))
-            }
+            Err(_) => return Err(AuthError::DatabaseError(format!("{} not found", file))),
         };
 
-        Ok(UserDb { pool })
+        Ok(Self { pool })
     }
 
-    fn conn(&self) -> AuthResult<r2d2::PooledConnection<SqliteConnectionManager>> {
+    fn conn(&self) -> AuthResult<PooledConnection<SqliteConnectionManager>> {
         match self.pool.get() {
             Ok(conn) => Ok(conn),
             Err(_) => Err(AuthError::DatabaseError(
@@ -100,20 +97,18 @@ impl UserDb {
     pub fn find_user_by_email(&self, user: &LoginUser) -> AuthResult<AuthUser> {
         eprintln!("find_user_by_email");
 
-        let conn: r2d2::PooledConnection<SqliteConnectionManager> = self.conn()?;
+        let conn = self.conn()?;
 
         let mut stmt = stmt(&conn, FIND_USER_BY_EMAIL_SQL)?;
 
-        let mapped_rows = match stmt
-            .query_map(rusqlite::params![user.email], |row: &rusqlite::Row<'_>| {
-                row_to_auth_user(row)
-            }) {
-            Ok(mapped_rows) => mapped_rows,
-            Err(_) => return Err(AuthError::DatabaseError("error running query".to_string())),
-        };
+        let mapped_rows =
+            match stmt.query_map(rusqlite::params![user.email], |row| row_to_auth_user(row)) {
+                Ok(mapped_rows) => mapped_rows,
+                Err(_) => return Err(AuthError::DatabaseError("error running query".to_string())),
+            };
 
         let auth_users: Vec<AuthUser> = mapped_rows
-            .filter_map(|x: Result<AuthUser, rusqlite::Error>| x.ok())
+            .filter_map(|x| x.ok())
             .collect::<Vec<AuthUser>>();
 
         if auth_users.len() == 0 {
@@ -137,9 +132,9 @@ impl UserDb {
             return Err(AuthError::UserAlreadyExistsError(user.email.clone()));
         }
 
-        let uuid: String = Uuid::new_v4().hyphenated().to_string().to_uppercase();
+        let user_id = make_token();
 
-        let hash: String = match user.hash_password() {
+        let hash = match user.hash_password() {
             Ok(hash) => hash,
             Err(_) => {
                 return Err(AuthError::CryptographyError(
@@ -148,11 +143,11 @@ impl UserDb {
             }
         };
 
-        let conn: r2d2::PooledConnection<SqliteConnectionManager> = self.conn()?;
+        let conn = self.conn()?;
 
         let mut stmt = stmt(&conn, CREATE_USER_SQL)?;
 
-        match stmt.execute(rusqlite::params![uuid, user.email, hash]) {
+        match stmt.execute(rusqlite::params![user_id, user.email, hash]) {
             Ok(_) => (),
             Err(err) => {
                 eprintln!("{}", err);
@@ -172,15 +167,15 @@ impl UserDb {
 
 // Make a cached statement
 fn stmt<'a>(
-    conn: &'a r2d2::PooledConnection<SqliteConnectionManager>,
+    conn: &'a PooledConnection<SqliteConnectionManager>,
     sql: &'a str,
 ) -> AuthResult<rusqlite::CachedStatement<'a>> {
     match conn.prepare_cached(sql) {
         Ok(stmt) => Ok(stmt),
         Err(_) => {
-            return Err(AuthError::DatabaseError(
-                "error creating statement".to_string(),
-            ))
+            return Err(AuthError::DatabaseError(format!(
+                "error creating statement"
+            )))
         }
     }
 }
@@ -197,4 +192,8 @@ fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error
         email,
         hashed_password,
     })
+}
+
+pub fn make_token() -> String {
+    return Uuid::new_v4().hyphenated().to_string();
 }
