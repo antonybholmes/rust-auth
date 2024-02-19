@@ -3,6 +3,7 @@ use std::fmt::Display;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 
+use rusqlite::CachedStatement;
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
@@ -77,38 +78,27 @@ pub struct UserDb {
 }
 
 impl UserDb {
-    pub fn new(file: &str) -> AuthResult<Self> {
+    pub fn new(file: &str) -> Self {
         let manager: SqliteConnectionManager = SqliteConnectionManager::file(file);
 
-        let pool = match Pool::builder().build(manager) {
-            Ok(pool) => pool,
-            Err(_) => return Err(AuthError::DatabaseError(format!("{} not found", file))),
-        };
+        let pool = Pool::builder().build(manager).unwrap();
 
-        Ok(Self { pool })
+        Self { pool }
     }
 
-    fn conn(&self) -> AuthResult<PooledConnection<SqliteConnectionManager>> {
-        match self.pool.get() {
-            Ok(conn) => Ok(conn),
-            Err(_) => Err(AuthError::DatabaseError(
-                "error getting connection".to_string(),
-            )),
-        }
+    fn conn(&self) -> PooledConnection<SqliteConnectionManager> {
+        self.pool.get().unwrap()
     }
 
     pub fn find_user_by_email(&self, user: &LoginUser) -> AuthResult<AuthUser> {
         eprintln!("find_user_by_email");
 
-        let conn = self.conn()?;
+        let conn = self.conn();
 
-        let mut stmt = stmt(&conn, FIND_USER_BY_EMAIL_SQL)?;
+        let mut stmt = conn.prepare_cached(FIND_USER_BY_EMAIL_SQL).unwrap();
 
         let mapped_rows =
-            match stmt.query_map(rusqlite::params![user.email], |row| row_to_auth_user(row)) {
-                Ok(mapped_rows) => mapped_rows,
-                Err(_) => return Err(AuthError::DatabaseError("error running query".to_string())),
-            };
+            stmt.query_map(rusqlite::params![user.email], |row| row_to_auth_user(row)).unwrap();
 
         let auth_users: Vec<AuthUser> = mapped_rows
             .filter_map(|x| x.ok())
@@ -146,19 +136,11 @@ impl UserDb {
             }
         };
 
-        let conn = self.conn()?;
+        let conn = self.conn();
 
-        let mut stmt = stmt(&conn, CREATE_USER_SQL)?;
+        let mut stmt = stmt(&conn, CREATE_USER_SQL);
 
-        match stmt.execute(rusqlite::params![user_id, user.email, hash]) {
-            Ok(_) => (),
-            Err(err) => {
-                eprintln!("{}", err);
-                return Err(AuthError::DatabaseError(
-                    "error executing insert".to_string(),
-                ));
-            }
-        }
+        stmt.execute(rusqlite::params![user_id, user.email, hash]).unwrap();
 
         let auth_user: AuthUser = self.find_user_by_email(user)?;
 
@@ -169,18 +151,11 @@ impl UserDb {
 }
 
 // Make a cached statement
-fn stmt<'a>(
+fn stmt<'a> (
     conn: &'a PooledConnection<SqliteConnectionManager>,
     sql: &'a str,
-) -> AuthResult<rusqlite::CachedStatement<'a>> {
-    match conn.prepare_cached(sql) {
-        Ok(stmt) => Ok(stmt),
-        Err(_) => {
-            return Err(AuthError::DatabaseError(format!(
-                "error creating statement"
-            )))
-        }
-    }
+) -> CachedStatement<'a>  {
+    conn.prepare_cached(sql).unwrap()
 }
 
 fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error> {

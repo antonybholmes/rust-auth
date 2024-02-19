@@ -1,5 +1,4 @@
-#[cfg(test)]
-use crate::email::SMTPEmailer;
+
 
 #[cfg(test)]
 use handlebars::Handlebars;
@@ -9,7 +8,7 @@ use std::collections::HashMap;
  
 #[test]
 fn test_email() {
-    use crate::otp;
+    use crate::{email::EMAILER, otp};
 
     sys::env::load();
 
@@ -31,7 +30,10 @@ fn test_email() {
 
     println!("{}", body);
 
-    let emailer = SMTPEmailer::new();
+    //let emailer = SMTPEmailer::new();
 
-    emailer.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
+    //emailer.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
+
+
+    EMAILER.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
 }

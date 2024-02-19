@@ -2,12 +2,13 @@ use lettre::{
     message::header::ContentType, transport::smtp::authentication::Credentials, Message,
     SmtpTransport, Transport,
 };
-
-
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Clone)]
 pub struct SMTPEmailer {
     //name: String,
+    user: String,
+    password: String,
 
     //host: String,
     //port: u32,
@@ -17,7 +18,7 @@ pub struct SMTPEmailer {
 }
 
 impl SMTPEmailer {
-    pub fn new( ) -> SMTPEmailer {
+    pub fn new() -> SMTPEmailer {
         let name = sys::env::str("SMTP_NAME");
         let from = sys::env::str("SMTP_FROM");
         let user = sys::env::str("SMTP_USER");
@@ -30,7 +31,7 @@ impl SMTPEmailer {
 
         println!("aha {}", reply_to);
 
-        let creds = Credentials::new(user, password);
+        let creds = Credentials::new(user.clone(), password.clone());
 
         // Open a remote connection to gmail
         let mailer = SmtpTransport::relay(&host)
@@ -40,18 +41,28 @@ impl SMTPEmailer {
 
         SMTPEmailer {
             //name,
-
+            user,
+            password,
             //host,
             //port,
             reply_to,
-            //addr,
+
             mailer,
         }
     }
 
+    pub fn set_host(&mut self, host: &str) -> &mut Self {
+        let mailer = SmtpTransport::relay(&host)
+            .unwrap()
+            .credentials(Credentials::new(self.user.clone(), self.password.clone()))
+            .build();
+
+        self.mailer = mailer;
+
+        self
+    }
+
     pub fn send_email(&self, to: &str, subject: &str, body: &str) {
-        
-        
         let email = Message::builder()
             .from(self.reply_to.parse().unwrap())
             .reply_to(self.reply_to.parse().unwrap())
@@ -67,3 +78,5 @@ impl SMTPEmailer {
         }
     }
 }
+
+pub static EMAILER: Lazy<SMTPEmailer> = Lazy::new(|| SMTPEmailer::new());
