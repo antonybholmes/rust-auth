@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use rocket::{http::Status, request::FromRequest, request::Outcome, Request};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{AuthError, AuthResult, AuthUser};
@@ -24,27 +24,26 @@ pub struct Jwt {
     pub claims: Claims,
 }
 
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for Jwt {
-    type Error = AuthError;
+// impl<'r> FromRequest<'r> for Jwt {
+//     type Error = AuthError;
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        fn is_valid(key: &str) -> AuthResult<Claims> {
-            Ok(decode_jwt(String::from(key))?)
-        }
+//     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+//         fn is_valid(key: &str) -> AuthResult<Claims> {
+//             Ok(decode_jwt(String::from(key))?)
+//         }
 
-        match req.headers().get_one("Authorization") {
-            None => Outcome::Error((
-                Status::Unauthorized,
-                AuthError::JWTError(format!("authorization header missing")),
-            )),
-            Some(key) => match is_valid(key) {
-                Ok(claims) => Outcome::Success(Jwt { claims }),
-                Err(err) => Outcome::Error((Status::Unauthorized, err)),
-            },
-        }
-    }
-}
+//         match req.headers().get_one("Authorization") {
+//             None => Outcome::Error((
+//                 Status::Unauthorized,
+//                 AuthError::JWTError(format!("authorization header missing")),
+//             )),
+//             Some(key) => match is_valid(key) {
+//                 Ok(claims) => Outcome::Success(Jwt { claims }),
+//                 Err(err) => Outcome::Error((Status::Unauthorized, err)),
+//             },
+//         }
+//     }
+// }
 
 fn secret() -> AuthResult<String> {
     match env::var("JWT_SECRET") {

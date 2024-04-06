@@ -1,29 +1,36 @@
 use std::fmt::Display;
 
-use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::SqliteConnectionManager;
-
-use rusqlite::CachedStatement;
+use sqlx::{FromRow, Pool, Sqlite};
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
-pub mod jwt;
 pub mod email;
+pub mod jwt;
 mod tests;
 
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, FromRow)]
+pub struct AuthUser {
+    id: u32,
+    user_id: String,
+    first_name: String,
+    last_name: String,
+    email: String,
+    password: String,
+}
 
-
+const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT id, user_id, first_name, last_name, email, password FROM users WHERE users.username = $1";
 const FIND_USER_BY_EMAIL_SQL: &'static str =
-    r#"SELECT id, user_id, email, password FROM users WHERE users.email = ?1"#;
+    "SELECT id, user_id, first_name, last_name, email, password FROM users WHERE users.email = $1";
 
 const CREATE_USER_SQL: &'static str =
-    r#"INSERT INTO users (user_id, email, password) VALUES(?1, ?2, ?3)"#;
+    "INSERT INTO users (user_id, email, password) VALUES($1, $2, $3)";
 
 #[derive(Debug, Clone)]
 pub enum AuthError {
-    UserDoesNotExist(String),
+    UserDoesNotExistError(String),
     UserAlreadyExistsError(String),
+    CouldNotCreateUserError(String),
     DatabaseError(String),
     CryptographyError(String),
     JWTError(String),
@@ -34,11 +41,14 @@ pub enum AuthError {
 impl Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthError::UserDoesNotExist(user) => write!(f, "account for {} does not exist", user),
+            AuthError::UserDoesNotExistError(user) => {
+                write!(f, "account for {} does not exist", user)
+            }
             AuthError::UserAlreadyExistsError(user) => {
                 write!(f, "acount for {} already exists", user)
             }
             AuthError::DatabaseError(error) => write!(f, "{}", error),
+            AuthError::CouldNotCreateUserError(error) => write!(f, "{}", error),
             AuthError::CryptographyError(error) => write!(f, "{}", error),
             AuthError::JWTError(error) => write!(f, "{}", error),
         }
@@ -49,7 +59,7 @@ pub type AuthResult<T> = std::result::Result<T, AuthError>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct LoginUser {
-    email: String,
+    username: String,
     password: String,
 }
 
@@ -59,70 +69,59 @@ impl LoginUser {
     }
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct AuthUser {
-    id: u32,
-    user_id: String,
-    email: String,
-    hashed_password: String,
-}
-
 impl AuthUser {
     pub fn check_password(&self, plain_pwd: &str) -> Result<bool, bcrypt::BcryptError> {
-        bcrypt::verify(plain_pwd, &self.hashed_password)
+        bcrypt::verify(plain_pwd, &self.password)
     }
 }
 
 pub struct UserDb {
-    pool: Pool<SqliteConnectionManager>,
+    pool: Pool<Sqlite>,
 }
 
 impl UserDb {
-    pub fn new(file: &str) -> Self {
-        let manager: SqliteConnectionManager = SqliteConnectionManager::file(file);
-
-        let pool = Pool::builder().build(manager).unwrap();
-
+    pub fn new(pool: Pool<Sqlite>) -> Self {
         Self { pool }
     }
 
-    fn conn(&self) -> PooledConnection<SqliteConnectionManager> {
-        self.pool.get().unwrap()
+    pub async fn find_user_by_username(&self, user: &LoginUser) -> AuthResult<AuthUser> {
+        eprintln!("find_user_by_username");
+
+        match sqlx::query_as::<_, AuthUser>(FIND_USER_BY_USERNAME_SQL)
+            .bind(&user.username)
+            .fetch_one(&self.pool)
+            .await
+        {
+            Ok(user) => Ok(user),
+            Err(_) => self.find_user_by_email(user).await,
+        }
     }
 
-    pub fn find_user_by_email(&self, user: &LoginUser) -> AuthResult<AuthUser> {
+    pub async fn find_user_by_email(&self, user: &LoginUser) -> AuthResult<AuthUser> {
         eprintln!("find_user_by_email");
 
-        let conn = self.conn();
-
-        let mut stmt = conn.prepare_cached(FIND_USER_BY_EMAIL_SQL).unwrap();
-
-        let mapped_rows =
-            stmt.query_map(rusqlite::params![user.email], |row| row_to_auth_user(row)).unwrap();
-
-        let auth_users: Vec<AuthUser> = mapped_rows
-            .filter_map(|x| x.ok())
-            .collect::<Vec<AuthUser>>();
-
-        if auth_users.len() == 0 {
-            return Err(AuthError::UserDoesNotExist(user.email.clone()));
+        match sqlx::query_as::<_, AuthUser>(FIND_USER_BY_EMAIL_SQL)
+            .bind(&user.username)
+            .fetch_one(&self.pool)
+            .await
+        {
+            Ok(user) => Ok(user),
+            Err(_) => Err(AuthError::UserDoesNotExistError(user.username.clone())),
         }
-
-        Ok(auth_users.get(0).unwrap().clone())
     }
 
-    pub fn user_exists(&self, user: &LoginUser) -> bool {
-        match self.find_user_by_email(user) {
+    pub async fn user_exists(&self, user: &LoginUser) -> bool {
+        match self.find_user_by_username(user).await {
             Ok(_) => true,
             Err(_) => false,
         }
     }
 
-    pub fn create_user(&self, user: &LoginUser) -> AuthResult<AuthUser> {
-        eprintln!("Creating");
+    pub async fn create_user(&self, user: &LoginUser) -> AuthResult<AuthUser> {
+        eprintln!("Creating user");
 
-        if self.user_exists(user) {
-            return Err(AuthError::UserAlreadyExistsError(user.email.clone()));
+        if self.user_exists(user).await {
+            return Err(AuthError::UserAlreadyExistsError(user.username.clone()));
         }
 
         let user_id = otp();
@@ -136,43 +135,46 @@ impl UserDb {
             }
         };
 
-        let conn = self.conn();
+        let result = sqlx::query(&CREATE_USER_SQL)
+            .bind(&user_id)
+            .bind(&user.username)
+            .bind(hash)
+            .execute(&self.pool)
+            .await;
 
-        let mut stmt = stmt(&conn, CREATE_USER_SQL);
-
-        stmt.execute(rusqlite::params![user_id, user.email, hash]).unwrap();
-
-        let auth_user: AuthUser = self.find_user_by_email(user)?;
-
-        Ok(auth_user)
+        match result {
+            Ok(_) => self.find_user_by_username(user).await,
+            Err(_) => Err(AuthError::CouldNotCreateUserError(user.username.clone())),
+        }
     }
 
     // Returns element
 }
 
 // Make a cached statement
-fn stmt<'a> (
-    conn: &'a PooledConnection<SqliteConnectionManager>,
-    sql: &'a str,
-) -> CachedStatement<'a>  {
-    conn.prepare_cached(sql).unwrap()
-}
+// fn stmt<'a>(
+//     conn: &'a PooledConnection<SqliteConnectionManager>,
+//     sql: &'a str,
+// ) -> CachedStatement<'a> {
+//     conn.prepare_cached(sql).unwrap()
+// }
 
-fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error> {
-    let id: u32 = row.get(0)?;
-    let user_id: String = row.get(1)?;
-    let email: String = row.get(2)?;
-    let hashed_password: String = row.get(3)?;
+// fn row_to_auth_user(row: &rusqlite::Row<'_>) -> Result<AuthUser, rusqlite::Error> {
+//     let id: u32 = row.get(0)?;
+//     let user_id: String = row.get(1)?;
+//     let email: String = row.get(2)?;
+//     let hashed_password: String = row.get(3)?;
 
-    Ok(AuthUser {
-        id,
-        user_id,
-        email,
-        hashed_password,
-    })
-}
+//     Ok(AuthUser {
+//         id,
+//         user_id,
+//         first_name,
+//         last_name,
+//         email,
+//         password,
+//     })
+// }
 
 pub fn otp() -> String {
     return Uuid::new_v4().hyphenated().to_string();
 }
-

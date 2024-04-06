@@ -2,8 +2,7 @@ use lettre::{
     message::header::ContentType, transport::smtp::authentication::Credentials, Message,
     SmtpTransport, Transport,
 };
-use once_cell::sync::Lazy;
-
+ 
 #[derive(Debug, Clone)]
 pub struct SMTPEmailer {
     //name: String,
@@ -79,4 +78,4 @@ impl SMTPEmailer {
     }
 }
 
-pub static EMAILER: Lazy<SMTPEmailer> = Lazy::new(|| SMTPEmailer::new());
+//pub static EMAILER: Lazy<SMTPEmailer> = Lazy::new(|| SMTPEmailer::new());

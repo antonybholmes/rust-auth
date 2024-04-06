@@ -8,7 +8,7 @@ use std::collections::HashMap;
  
 #[test]
 fn test_email() {
-    use crate::{email::EMAILER, otp};
+    use crate::{email::SMTPEmailer, otp};
 
     sys::env::load();
 
@@ -24,16 +24,15 @@ fn test_email() {
 
     let mut data = HashMap::new();
     data.insert("name", "Antony" );
-    data.insert("code",&code);
+    data.insert("test",&code);
 
     let body = handlebars.render("email", &data).unwrap();
 
     println!("{}", body);
 
-    //let emailer = SMTPEmailer::new();
+    let emailer = SMTPEmailer::new();
 
-    //emailer.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
+    emailer.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
 
 
-    EMAILER.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
 }
