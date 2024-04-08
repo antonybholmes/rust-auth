@@ -116,9 +116,9 @@ impl UserDb {
     }
 
     pub async fn find_user_by_uuid(&self, uuid: &str) -> AuthResult<Option<User>> {
-        eprintln!("find_user_by_username");
+        eprintln!("find_user_by_uuid");
 
-        match sqlx::query_as::<_, User>(FIND_USER_BY_USERNAME_SQL)
+        match sqlx::query_as::<_, User>(FIND_USER_BY_UUID_SQL)
             .bind(uuid)
             .fetch_one(&self.pool)
             .await
