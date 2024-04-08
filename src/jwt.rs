@@ -5,7 +5,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AuthError, AuthResult, AuthUser};
+use crate::{AuthError, AuthResult, User};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims {
@@ -52,7 +52,7 @@ fn secret() -> AuthResult<String> {
     }
 }
 
-pub fn create_jwt(user: &AuthUser) -> AuthResult<String> {
+pub fn create_jwt(user: &User) -> AuthResult<String> {
     let secret: String = secret()?;
 
     let expiration: i64 = match Utc::now().checked_add_signed(chrono::Duration::hours(24)) {
