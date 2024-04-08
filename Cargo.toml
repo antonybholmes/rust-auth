@@ -29,3 +29,4 @@ sqlx = { version = "0.7.4", features = [
     "macros",
     "time",
 ] }
+axum = "0.7.5"

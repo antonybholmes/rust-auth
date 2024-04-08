@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use axum::{http::StatusCode, response::{Response,IntoResponse}};
 use sqlx::{FromRow, Pool, Sqlite};
 use uuid::Uuid;
 
@@ -52,6 +53,12 @@ impl Display for AuthError {
             AuthError::CryptographyError(error) => write!(f, "{}", error),
             AuthError::JWTError(error) => write!(f, "{}", error),
         }
+    }
+}
+
+impl IntoResponse for AuthError {
+    fn into_response(self) -> Response {
+         (StatusCode::BAD_REQUEST, self.to_string()).into_response()
     }
 }
 
