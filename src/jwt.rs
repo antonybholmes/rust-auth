@@ -1,27 +1,79 @@
-use std::env;
-
+use axum::{
+    async_trait,
+    extract::{FromRef, FromRequestParts},
+    http::{header::AUTHORIZATION, request::Parts, StatusCode},
+};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sqlx::{Pool, Sqlite};
 
-use crate::{AuthError, AuthResult, User};
+use crate::{email::Mailer, AuthError, AuthResult, User};
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Claims {
-    pub user_id: String,
-    pub email: String,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JwtClaims {
+    pub uuid: String,
     pub exp: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JwtToken(pub JwtClaims);
+
+#[derive(Clone)]
+pub struct AppState {
+    pub user_pool: Pool<Sqlite>,
+    pub mailer: Mailer,
+    pub secret: DecodingKey,
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for JwtToken
+where
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+         let state = AppState::from_ref(state);
+
+        let auth_header = parts.headers.get(AUTHORIZATION);
+
+        let token = match auth_header {
+            Some(header_value) => match header_value.to_str() {
+                Ok(value) => match value.strip_prefix("Bearer ") {
+                    Some(token) => token,
+                    _ => {
+                        return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string()))
+                    }
+                },
+                _ => return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string())),
+            },
+            _ => return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string())),
+        };
+
+        //&DecodingKey::from_secret(secret().as_bytes())
+
+        match decode::<JwtClaims>(
+            &token,
+            &state.secret,
+            &Validation::new(Algorithm::RS512),
+        ) {
+            Ok(data) => Ok(JwtToken(data.claims)),
+            Err(err) => return Err((StatusCode::UNAUTHORIZED, err.to_string())),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JWTResp {
-    pub jwt: String,
+    pub token: String,
 }
 
 #[derive(Debug)]
 pub struct Jwt {
-    pub claims: Claims,
+    pub claims: JwtClaims,
 }
 
 // impl<'r> FromRequest<'r> for Jwt {
@@ -45,24 +97,21 @@ pub struct Jwt {
 //     }
 // }
 
-fn secret() -> AuthResult<String> {
-    match env::var("JWT_SECRET") {
-        Ok(secret) => Ok(secret),
-        Err(_) => return Err(AuthError::JWTError(format!("secret error"))),
-    }
+pub fn secret() -> String {
+    return sys::env::str("JWT_SECRET");
 }
 
 pub fn create_jwt(user: &User) -> AuthResult<String> {
-    let secret: String = secret()?;
+    let secret: String = secret();
 
     let expiration: i64 = match Utc::now().checked_add_signed(chrono::Duration::hours(24)) {
         Some(d) => d.timestamp(),
         None => return Err(AuthError::JWTError(format!("invalid time"))),
     };
 
-    let claims: Claims = Claims {
-        user_id: user.uuid.to_owned(),
-        email: user.email.to_owned(),
+    let claims: JwtClaims = JwtClaims {
+        uuid: user.uuid.to_owned(),
+
         exp: expiration as usize,
     };
 
@@ -78,16 +127,16 @@ pub fn create_jwt(user: &User) -> AuthResult<String> {
     }
 }
 
-pub fn decode_jwt(token: String) -> AuthResult<Claims> {
-    let secret: String = secret()?;
+pub fn decode_jwt(token: String) -> AuthResult<JwtClaims> {
+    let secret: String = secret();
 
     let token: &str = token.trim_start_matches("Bearer").trim();
 
     // 👇 New!
-    match decode::<Claims>(
+    match decode::<JwtClaims>(
         &token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::new(Algorithm::HS512),
+        &Validation::new(Algorithm::RS512),
     ) {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {

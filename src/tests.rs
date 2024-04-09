@@ -19,7 +19,7 @@ struct EmailTemplate {
 
 #[test]
 fn test_email() {
-    use crate::{email::SMTPEmailer, otp};
+    use crate::{email::Mailer, otp};
 
     sys::env::load();
 
@@ -41,7 +41,7 @@ fn test_email() {
 
     println!("{}", body);
 
-    let emailer = SMTPEmailer::new();
+    let emailer = Mailer::new();
 
     emailer.send_email("antony@antonyholmes.dev", "Yet Another test", &body);
 
