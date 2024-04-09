@@ -1,11 +1,22 @@
 
 
+use askama::Template;
 #[cfg(test)]
 use handlebars::Handlebars;
 #[cfg(test)]
 use std::collections::HashMap;
 #[cfg(test)]
  
+
+#[derive(Template)]
+#[template(path = "email/verify/api.html")]
+struct EmailTemplate {
+    name: String,
+    link: String,
+    time: String,
+    do_not_reply: String,
+}
+
 #[test]
 fn test_email() {
     use crate::{email::SMTPEmailer, otp};
