@@ -61,7 +61,7 @@ pub fn create_jwt(user: &User) -> AuthResult<String> {
     };
 
     let claims: Claims = Claims {
-        user_id: user.user_id.to_owned(),
+        user_id: user.uuid.to_owned(),
         email: user.email.to_owned(),
         exp: expiration as usize,
     };
