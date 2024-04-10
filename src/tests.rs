@@ -2,8 +2,6 @@
 
 use askama::Template;
 #[cfg(test)]
-use handlebars::Handlebars;
-#[cfg(test)]
 use std::collections::HashMap;
 #[cfg(test)]
  

@@ -1,19 +1,49 @@
+use std::fmt;
+
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
     http::{header::AUTHORIZATION, request::Parts, StatusCode},
 };
+
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 
-use crate::{email::Mailer, AuthError, AuthResult, User};
+use crate::{create_otp, email::Mailer, AuthError, AuthResult, User};
+
+const TOKEN_TYPE_REFRESH_TTL_HOURS: i64 = 24;
+const TOKEN_TYPE_ACCESS_TTL_HOURS: i64 = 1;
+const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum TokenType {
+    Refresh,
+    Access,
+    Passwordless,
+    ResetPassword,
+    VerifyEmail,
+}
+
+impl fmt::Display for TokenType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TokenType::Refresh => write!(f, "refresh"),
+            TokenType::Access => write!(f, "access"),
+            TokenType::Passwordless => write!(f, "passwordless"),
+            TokenType::ResetPassword => write!(f, "reset_password"),
+            TokenType::VerifyEmail => write!(f, "verify_email"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JwtClaims {
     pub uuid: String,
+    pub token_type: String,
+    pub otp: String,
     pub exp: usize,
 }
 
@@ -36,7 +66,7 @@ where
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-         let state = AppState::from_ref(state);
+        let state = AppState::from_ref(state);
 
         let auth_header = parts.headers.get(AUTHORIZATION);
 
@@ -55,11 +85,7 @@ where
 
         //&DecodingKey::from_secret(secret().as_bytes())
 
-        match decode::<JwtClaims>(
-            &token,
-            &state.secret,
-            &Validation::new(Algorithm::RS512),
-        ) {
+        match decode::<JwtClaims>(&token, &state.secret, &Validation::new(Algorithm::RS512)) {
             Ok(data) => Ok(JwtToken(data.claims)),
             Err(err) => return Err((StatusCode::UNAUTHORIZED, err.to_string())),
         }
@@ -101,29 +127,134 @@ pub fn secret() -> String {
     return sys::env::str("JWT_SECRET");
 }
 
-pub fn create_jwt(user: &User) -> AuthResult<String> {
-    let secret: String = secret();
+// pub fn create_jwt(user: &User) -> AuthResult<String> {
+//     let secret: String = secret();
 
-    let expiration: i64 = match Utc::now().checked_add_signed(chrono::Duration::hours(24)) {
-        Some(d) => d.timestamp(),
-        None => return Err(AuthError::JWTError(format!("invalid time"))),
-    };
+//     let expiration: i64 = match Utc::now().checked_add_signed(chrono::Duration::hours(24)) {
+//         Some(d) => d.timestamp(),
+//         None => return Err(AuthError::JWTError(format!("invalid time"))),
+//     };
+
+//     let claims: JwtClaims = JwtClaims {
+//         uuid: user.uuid.to_owned(),
+//         exp: expiration as usize,
+//     };
+
+//     let header = Header::new(Algorithm::HS512);
+
+//     match encode(
+//         &header,
+//         &claims,
+//         &EncodingKey::from_secret(secret.as_bytes()),
+//     ) {
+//         Ok(jwt) => Ok(jwt),
+//         Err(_) => Err(AuthError::JWTError(format!("error encoding jwt"))),
+//     }
+// }
+
+pub fn refresh_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::hours(TOKEN_TYPE_REFRESH_TTL_HOURS))
+        .expect("valid timestamp")
+        .timestamp();
+
+    jwt(uuid, &TokenType::Refresh, key, expiration)
+}
+
+pub fn access_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::hours(TOKEN_TYPE_ACCESS_TTL_HOURS))
+        .expect("valid timestamp")
+        .timestamp();
+
+    jwt(uuid, &TokenType::Access, key, expiration)
+}
+
+pub fn verify_email_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
+    short_jwt(uuid, &TokenType::VerifyEmail, key)
+}
+
+pub fn reset_jwt(user: &User, key: &EncodingKey) -> AuthResult<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
+        .expect("valid timestamp")
+        .timestamp();
 
     let claims: JwtClaims = JwtClaims {
-        uuid: user.uuid.to_owned(),
-
+        uuid: user.uuid.to_string(),
+        token_type: TokenType::ResetPassword.to_string(),
+        otp: create_otp(user).unwrap(),
         exp: expiration as usize,
     };
 
-    let header = Header::new(Algorithm::HS512);
+    base_jwt(&claims, key)
+}
 
-    match encode(
-        &header,
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    ) {
+pub fn passwordless_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
+    short_jwt(uuid, &TokenType::Passwordless, key)
+}
+
+pub fn otp_jwt(
+    user: &User,
+    token_type: &TokenType,
+    key: &EncodingKey,
+    expiration: i64,
+) -> AuthResult<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
+        .expect("valid timestamp")
+        .timestamp();
+
+    basic_jwt(
+        &user.uuid,
+        token_type,
+        &create_otp(user).unwrap(),
+        key,
+        expiration,
+    )
+}
+
+pub fn short_jwt(uuid: &str, token_type: &TokenType, key: &EncodingKey) -> AuthResult<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
+        .expect("valid timestamp")
+        .timestamp();
+
+    jwt(uuid, token_type, key, expiration)
+}
+
+pub fn jwt(
+    uuid: &str,
+    token_type: &TokenType,
+    key: &EncodingKey,
+    expiration: i64,
+) -> AuthResult<String> {
+    basic_jwt(uuid, token_type, "", key, expiration)
+}
+
+pub fn basic_jwt(
+    uuid: &str,
+    token_type: &TokenType,
+    otp: &str,
+    key: &EncodingKey,
+    expiration: i64,
+) -> AuthResult<String> {
+    let claims: JwtClaims = JwtClaims {
+        uuid: uuid.to_string(),
+        token_type: token_type.to_string(),
+        otp: otp.to_string(),
+        exp: expiration as usize,
+    };
+
+    base_jwt(&claims, key)
+}
+
+pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
+    let header = Header::new(Algorithm::RS512);
+
+    match encode(&header, claims, key) {
         Ok(jwt) => Ok(jwt),
-        Err(_) => Err(AuthError::JWTError(format!("error encoding jwt"))),
+        _ => Err(AuthError::JWTError(format!("error encoding jwt"))),
     }
 }
 
