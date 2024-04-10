@@ -6,7 +6,7 @@ use axum::{
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 
 use crate::{email::Mailer, AuthError, AuthResult, User};

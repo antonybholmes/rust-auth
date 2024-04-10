@@ -134,7 +134,7 @@ impl UserDb {
         }
     }
 
-    pub async fn find_user_by_username(&self, user: &Credentials) -> AuthResult<Option<User>> {
+    pub async fn find_user_by_username(&self, user: &Credentials) -> AuthResult<User> {
         eprintln!("find_user_by_username {}", FIND_USER_BY_USERNAME_SQL);
 
         match sqlx::query_as::<_, User>(FIND_USER_BY_USERNAME_SQL)
@@ -142,14 +142,15 @@ impl UserDb {
             .fetch_one(&self.pool)
             .await
         {
-            Ok(user) => Ok(Some(user)),
+            Ok(user) => Ok(user),
             Err(err) => {
                 eprint!("{}", err);
                 self.find_user_by_email(user).await
-        },}
+            }
+        }
     }
 
-    pub async fn find_user_by_email(&self, user: &Credentials) -> AuthResult<Option<User>> {
+    pub async fn find_user_by_email(&self, user: &Credentials) -> AuthResult<User> {
         eprintln!("find_user_by_email");
 
         match sqlx::query_as::<_, User>(FIND_USER_BY_EMAIL_SQL)
@@ -157,7 +158,7 @@ impl UserDb {
             .fetch_one(&self.pool)
             .await
         {
-            Ok(user) => Ok(Some(user)),
+            Ok(user) => Ok(user),
             Err(_) => Err(AuthError::UserDoesNotExistError(user.username.clone())),
         }
     }
@@ -169,7 +170,7 @@ impl UserDb {
         }
     }
 
-    pub async fn create_user(&self, user: &Credentials) -> AuthResult<Option<User>> {
+    pub async fn create_user(&self, user: &Credentials) -> AuthResult<User> {
         eprintln!("Creating user");
 
         if self.user_exists(user).await {
