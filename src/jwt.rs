@@ -55,6 +55,7 @@ pub struct AppState {
     pub user_pool: Pool<Sqlite>,
     pub mailer: Mailer,
     pub secret: DecodingKey,
+    pub jwt_encoder_key: EncodingKey
 }
 
 #[async_trait]
@@ -158,6 +159,8 @@ pub fn refresh_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
         .expect("valid timestamp")
         .timestamp();
 
+    eprint!("exp {}", expiration);
+
     jwt(uuid, &TokenType::Refresh, key, expiration)
 }
 
@@ -246,15 +249,18 @@ pub fn basic_jwt(
         exp: expiration as usize,
     };
 
+    eprintln!("claims {}", claims.uuid);
+
     base_jwt(&claims, key)
 }
 
 pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
-    let header = Header::new(Algorithm::RS512);
+    let header = Header::new(Algorithm::RS256);
 
+ 
     match encode(&header, claims, key) {
         Ok(jwt) => Ok(jwt),
-        _ => Err(AuthError::JWTError(format!("error encoding jwt"))),
+        Err(err) => Err(AuthError::JWTError(err.to_string())),
     }
 }
 
