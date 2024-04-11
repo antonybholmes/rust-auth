@@ -54,8 +54,8 @@ pub struct JwtToken(pub JwtClaims);
 pub struct AppState {
     pub user_pool: Pool<Sqlite>,
     pub mailer: Mailer,
-    pub secret: DecodingKey,
-    pub jwt_encoder_key: EncodingKey
+    pub jwt_public_key: DecodingKey,
+    pub jwt_private_key: EncodingKey
 }
 
 #[async_trait]
@@ -86,7 +86,7 @@ where
 
         //&DecodingKey::from_secret(secret().as_bytes())
 
-        match decode::<JwtClaims>(&token, &state.secret, &Validation::new(Algorithm::RS512)) {
+        match decode::<JwtClaims>(&token, &state.jwt_public_key, &Validation::new(Algorithm::EdDSA)) {
             Ok(data) => Ok(JwtToken(data.claims)),
             Err(err) => return Err((StatusCode::UNAUTHORIZED, err.to_string())),
         }
@@ -124,9 +124,9 @@ pub struct Jwt {
 //     }
 // }
 
-pub fn secret() -> String {
-    return sys::env::str("JWT_SECRET");
-}
+// pub fn secret() -> String {
+//     return sys::env::str("JWT_SECRET");
+// }
 
 // pub fn create_jwt(user: &User) -> AuthResult<String> {
 //     let secret: String = secret();
@@ -201,7 +201,6 @@ pub fn otp_jwt(
     user: &User,
     token_type: &TokenType,
     key: &EncodingKey,
-    expiration: i64,
 ) -> AuthResult<String> {
     let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
@@ -255,7 +254,7 @@ pub fn basic_jwt(
 }
 
 pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
-    let header = Header::new(Algorithm::RS256);
+    let header = Header::new(Algorithm::EdDSA);
 
  
     match encode(&header, claims, key) {
@@ -264,16 +263,15 @@ pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
     }
 }
 
-pub fn decode_jwt(token: String) -> AuthResult<JwtClaims> {
-    let secret: String = secret();
-
+pub fn decode_jwt(token: String, key: &DecodingKey) -> AuthResult<JwtClaims> {
+ 
     let token: &str = token.trim_start_matches("Bearer").trim();
 
     // 👇 New!
     match decode::<JwtClaims>(
         &token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::new(Algorithm::RS512),
+        key,
+        &Validation::new(Algorithm::EdDSA),
     ) {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {
