@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use rusty_paseto::generic::PasetoClaimError;
 use sqlx::{FromRow, Pool, Sqlite};
 use uuid::Uuid;
 
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod email;
 pub mod jwt;
+pub mod paseto;
 mod tests;
 
 const FIND_USER_BY_UUID_SQL: &'static str = "SELECT id, uuid, first_name, last_name, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.uuid = $1 LIMIT 1";
@@ -77,6 +79,20 @@ pub enum AuthError {
 }
 
 impl std::error::Error for AuthError {}
+
+impl From<time::error::Format> for AuthError {
+    fn from(error: time::error::Format) -> Self {
+        AuthError::JWTError(error.to_string())
+    }
+}
+
+impl From<PasetoClaimError> for AuthError {
+    fn from(error: PasetoClaimError) -> Self {
+        AuthError::JWTError(error.to_string())
+    }
+}
+
+ 
 
 //impl std::error::Error for AuthError {}
 

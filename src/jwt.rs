@@ -271,7 +271,7 @@ pub fn decode_jwt(token: String, key: &DecodingKey) -> AuthResult<JwtClaims> {
     match decode::<JwtClaims>(
         &token,
         key,
-        &Validation::new(Algorithm::EdDSA),
+        &Validation::new(Algorithm::RS256),
     ) {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {
