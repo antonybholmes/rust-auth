@@ -10,13 +10,13 @@ use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Sqlite};
+ 
 
-use crate::{create_otp, email::Mailer, AuthError, AuthResult, User};
+use crate::{create_otp, email::Mailer, AuthError, AuthResult, User, UserDb};
 
-const TOKEN_TYPE_REFRESH_TTL_HOURS: i64 = 24;
-const TOKEN_TYPE_ACCESS_TTL_HOURS: i64 = 1;
-const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
+pub const TOKEN_TYPE_REFRESH_TTL_HOURS: i64 = 24;
+pub const TOKEN_TYPE_ACCESS_TTL_HOURS: i64 = 1;
+pub const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TokenType {
@@ -52,7 +52,7 @@ pub struct JwtToken(pub JwtClaims);
 
 #[derive(Clone)]
 pub struct AppState {
-    pub user_pool: Pool<Sqlite>,
+    pub user_db: UserDb,
     pub mailer: Mailer,
     pub jwt_public_key: DecodingKey,
     pub jwt_private_key: EncodingKey
@@ -93,15 +93,15 @@ where
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct JWTResp {
-    pub token: String,
-}
+// #[derive(Debug, Deserialize, Serialize)]
+// pub struct JWTResp {
+//     pub token: String,
+// }
 
-#[derive(Debug)]
-pub struct Jwt {
-    pub claims: JwtClaims,
-}
+// #[derive(Debug)]
+// pub struct Jwt {
+//     pub claims: JwtClaims,
+// }
 
 // impl<'r> FromRequest<'r> for Jwt {
 //     type Error = AuthError;
@@ -271,7 +271,7 @@ pub fn decode_jwt(token: String, key: &DecodingKey) -> AuthResult<JwtClaims> {
     match decode::<JwtClaims>(
         &token,
         key,
-        &Validation::new(Algorithm::RS256),
+        &Validation::new(Algorithm::EdDSA),
     ) {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {

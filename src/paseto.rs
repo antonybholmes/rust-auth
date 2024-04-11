@@ -1,13 +1,13 @@
  
 use rusty_paseto::{
-    core::{Key, PasetoAsymmetricPrivateKey, PasetoAsymmetricPublicKey, Public, V4},
-    generic::{AudienceClaim, ExpirationClaim, TokenIdentifierClaim},
-    prelude::{PasetoBuilder, PasetoParser},
+    core::{PasetoAsymmetricPrivateKey, Public, V4},
+    generic::{CustomClaim, ExpirationClaim, TokenIdentifierClaim},
+    prelude::PasetoBuilder,
 };
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
-use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{jwt::TokenType, AuthError, AuthResult};
 
@@ -22,6 +22,8 @@ pub fn base_pasesto(uuid: &str,
     match PasetoBuilder::<V4, Public>::default()
         .set_claim(ExpirationClaim::try_from(expires.format(&Rfc3339)?)?)
         .set_claim(TokenIdentifierClaim::from(uuid))
+        .set_claim(CustomClaim::try_from(("type", token_type.to_string()))?)
+        .set_claim(CustomClaim::try_from(("otp", otp))?)
         .build(key) {
             Ok(paseto) => Ok(paseto),
             Err(err) => Err(AuthError::JWTError(err.to_string())),

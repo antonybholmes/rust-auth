@@ -16,24 +16,33 @@ pub mod jwt;
 pub mod paseto;
 mod tests;
 
-const FIND_USER_BY_UUID_SQL: &'static str = "SELECT id, uuid, first_name, last_name, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.uuid = $1 LIMIT 1";
-const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT id, uuid, first_name, last_name, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.username = $1 LIMIT 1";
+const FIND_USER_BY_UUID_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.uuid = $1 LIMIT 1";
+const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.username = $1 LIMIT 1";
 const FIND_USER_BY_EMAIL_SQL: &'static str =
-    "SELECT id, uuid, first_name, last_name, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.email = $1 LIMIT 1";
+    "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.email = $1 LIMIT 1";
 
 const CREATE_USER_SQL: &'static str =
-    "INSERT INTO users (uuid, email, password) VALUES($1, $2, $3)";
+    "INSERT INTO users (uuid, username, email, password) VALUES($1, $2, $3, $4)";
 
-    
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublicUser {
+    pub uuid: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub username: String,
+    pub email: String,
+}
+
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, FromRow)]
 pub struct User {
     pub id: u32,
     pub uuid: String,
     pub first_name: String,
     pub last_name: String,
+    pub username: String,
     pub email: String,
     pub password: String,
-    pub updated_on: String
+    pub updated_on: String,
 }
 
 impl AuthUser for User {
@@ -52,21 +61,29 @@ impl User {
     pub fn check_password(&self, plain_pwd: &str) -> Result<bool, bcrypt::BcryptError> {
         bcrypt::verify(plain_pwd, &self.password)
     }
+
+    pub fn to_public(&self) -> PublicUser {
+        return PublicUser {
+            uuid: self.uuid.clone(),
+            first_name: self.first_name.clone(),
+            last_name: self.last_name.clone(),
+            username: self.username.clone(),
+            email: self.email.clone(),
+        };
+    }
 }
 
 pub fn check_password(plain_pwd: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
     bcrypt::verify(plain_pwd, hash)
 }
 
-pub fn hash (password:&str) -> Result<String, bcrypt::BcryptError> {
+pub fn hash(password: &str) -> Result<String, bcrypt::BcryptError> {
     bcrypt::hash(password, bcrypt::DEFAULT_COST)
 }
 
-pub fn create_otp(user: &User) -> Result<String, bcrypt::BcryptError>  {
-	return hash(&user.updated_on)
-
+pub fn create_otp(user: &User) -> Result<String, bcrypt::BcryptError> {
+    return hash(&user.updated_on);
 }
-
 
 #[derive(Debug, Clone)]
 pub enum AuthError {
@@ -91,8 +108,6 @@ impl From<PasetoClaimError> for AuthError {
         AuthError::JWTError(error.to_string())
     }
 }
-
- 
 
 //impl std::error::Error for AuthError {}
 
@@ -125,11 +140,14 @@ pub type AuthResult<T> = std::result::Result<T, AuthError>;
 pub struct Credentials {
     pub username: String,
     pub password: String,
+    #[serde(rename(deserialize = "callbackUrl"))]
+    pub callback_url: Option<String>,
+    pub url: Option<String>,
 }
 
 impl Credentials {
     pub fn hash_password(&self) -> Result<String, bcrypt::BcryptError> {
-         hash(&self.password )
+        hash(&self.password)
     }
 }
 
@@ -162,37 +180,37 @@ impl UserDb {
         }
     }
 
-    pub async fn find_user_by_username(&self, user: &Credentials) -> AuthResult<User> {
+    pub async fn find_user_by_username(&self, username: &str) -> AuthResult<User> {
         eprintln!("find_user_by_username {}", FIND_USER_BY_USERNAME_SQL);
 
         match sqlx::query_as::<_, User>(FIND_USER_BY_USERNAME_SQL)
-            .bind(&user.username)
+            .bind(username)
             .fetch_one(&self.pool)
             .await
         {
             Ok(user) => Ok(user),
             Err(err) => {
                 eprint!("{}", err);
-                self.find_user_by_email(user).await
+                self.find_user_by_email(username).await
             }
         }
     }
 
-    pub async fn find_user_by_email(&self, user: &Credentials) -> AuthResult<User> {
+    pub async fn find_user_by_email(&self, email: &str) -> AuthResult<User> {
         eprintln!("find_user_by_email");
 
         match sqlx::query_as::<_, User>(FIND_USER_BY_EMAIL_SQL)
-            .bind(&user.username)
+            .bind(email)
             .fetch_one(&self.pool)
             .await
         {
             Ok(user) => Ok(user),
-            Err(_) => Err(AuthError::UserDoesNotExistError(user.username.clone())),
+            Err(_) => Err(AuthError::UserDoesNotExistError(email.to_string())),
         }
     }
 
-    pub async fn user_exists(&self, user: &Credentials) -> bool {
-        match self.find_user_by_username(user).await {
+    pub async fn username_exists(&self, username: &str) -> bool {
+        match self.find_user_by_username(username).await {
             Ok(_) => true,
             Err(_) => false,
         }
@@ -201,7 +219,7 @@ impl UserDb {
     pub async fn create_user(&self, user: &Credentials) -> AuthResult<User> {
         eprintln!("Creating user");
 
-        if self.user_exists(user).await {
+        if self.username_exists(&user.username).await {
             return Err(AuthError::UserAlreadyExistsError(user.username.clone()));
         }
 
@@ -219,12 +237,13 @@ impl UserDb {
         let result = sqlx::query(&CREATE_USER_SQL)
             .bind(&user_id)
             .bind(&user.username)
+            .bind(&user.username)
             .bind(hash)
             .execute(&self.pool)
             .await;
 
         match result {
-            Ok(_) => self.find_user_by_username(user).await,
+            Ok(_) => self.find_user_by_username(&user.username).await,
             Err(_) => Err(AuthError::CouldNotCreateUserError(user.username.clone())),
         }
     }

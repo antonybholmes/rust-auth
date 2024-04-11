@@ -11,6 +11,46 @@ pub const DO_NOT_REPLY: &str = "Please do not reply to this message. It was sent
 pub const TOKEN_PARAM: &str = "token";
 pub const URL_PARAM: &str = "url";
 
+
+#[derive(Template)]
+#[template(path = "email/passwordless/api.html")]
+pub struct PasswordlessEmailTemplate {
+    pub name: String,
+    pub link: String,
+    pub time: String,
+    pub do_not_reply: String,
+}
+
+#[derive(Template)]
+#[template(path = "email/passwordless/web.html")]
+pub struct PasswordlessEmailWebTemplate {
+    pub name: String,
+    pub link: String,
+    pub time: String,
+    pub do_not_reply: String,
+}
+
+#[derive(Template)]
+#[template(path = "email/verify/api.html")]
+pub struct EmailVerificationTemplate {
+    pub name: String,
+    pub link: String,
+    pub time: String,
+    pub do_not_reply: String,
+}
+
+#[derive(Template)]
+#[template(path = "email/verify/web.html")]
+pub struct EmailVerificationWebTemplate {
+    pub name: String,
+    pub link: String,
+    pub time: String,
+    pub do_not_reply: String,
+}
+
+
+
+
 #[derive(Debug, Clone)]
 pub enum EmailError {
     SendError(String),
