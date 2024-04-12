@@ -4,8 +4,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use bcrypt::BcryptError;
 use rusty_paseto::generic::PasetoClaimError;
 use sqlx::{FromRow, Pool, Sqlite};
+use tokio::task::JoinError;
 use uuid::Uuid;
 
 use axum_login::AuthUser;
@@ -35,19 +37,23 @@ pub struct PublicUser {
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, FromRow)]
 pub struct User {
-    pub id: u32,
     pub uuid: String,
     pub first_name: String,
     pub last_name: String,
     pub username: String,
     pub email: String,
     pub password: String,
+    pub can_signin: bool,
+    pub email_verified: bool,
+
     pub updated_on: String,
 }
 
 impl AuthUser for User {
+    // here we indicate that the id is a string
     type Id = String;
 
+    // map the uuid to the user id in the auth
     fn id(&self) -> Self::Id {
         self.uuid.clone()
     }
@@ -93,6 +99,7 @@ pub enum AuthError {
     DatabaseError(String),
     CryptographyError(String),
     JWTError(String),
+    PasswordError(String),
 }
 
 impl std::error::Error for AuthError {}
@@ -106,6 +113,18 @@ impl From<time::error::Format> for AuthError {
 impl From<PasetoClaimError> for AuthError {
     fn from(error: PasetoClaimError) -> Self {
         AuthError::JWTError(error.to_string())
+    }
+}
+
+impl From<BcryptError> for AuthError {
+    fn from(error: BcryptError) -> Self {
+        AuthError::PasswordError(error.to_string())
+    }
+}
+
+impl From<JoinError> for AuthError {
+    fn from(error: JoinError) -> Self {
+        AuthError::PasswordError(error.to_string())
     }
 }
 
@@ -124,6 +143,7 @@ impl Display for AuthError {
             AuthError::CouldNotCreateUserError(error) => write!(f, "{}", error),
             AuthError::CryptographyError(error) => write!(f, "{}", error),
             AuthError::JWTError(error) => write!(f, "{}", error),
+            AuthError::PasswordError(error) => write!(f, "{}", error),
         }
     }
 }
