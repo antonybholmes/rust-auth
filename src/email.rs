@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use askama::Template;
-use axum::{http::StatusCode, response::{IntoResponse, Response}};
 use lettre::{
     message::header::ContentType, transport::smtp::authentication::Credentials, Message,
     SmtpTransport, Transport,
@@ -10,7 +9,6 @@ use lettre::{
 pub const DO_NOT_REPLY: &str = "Please do not reply to this message. It was sent from a notification-only email address that we don't monitor.";
 pub const TOKEN_PARAM: &str = "token";
 pub const URL_PARAM: &str = "url";
-
 
 #[derive(Template)]
 #[template(path = "email/passwordless/api.html")]
@@ -48,20 +46,17 @@ pub struct EmailVerificationWebTemplate {
     pub do_not_reply: String,
 }
 
-
-
-
 #[derive(Debug, Clone)]
-pub enum EmailError {
+pub enum MailerError {
     SendError(String),
-    HtmlEmailError(String)
+    HtmlEmailError(String),
 }
 
-impl std::error::Error for EmailError {}
+//impl std::error::Error for MailerError {}
 
 //impl std::error::Error for AuthError {}
 
-impl Display for EmailError {
+impl Display for MailerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SendError(message) => {
@@ -74,12 +69,23 @@ impl Display for EmailError {
     }
 }
 
-impl IntoResponse for EmailError {
-    fn into_response(self) -> Response {
-        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+// impl IntoResponse for MailerError {
+//     fn into_response(self) -> Response {
+//         (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+//     }
+// }
+
+impl From<lettre::error::Error> for MailerError {
+    fn from(error: lettre::error::Error) -> Self {
+        MailerError::SendError(error.to_string())
     }
 }
 
+impl From<askama::Error> for MailerError {
+    fn from(error: askama::Error) -> Self {
+        MailerError::SendError(error.to_string())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Mailer {
@@ -106,7 +112,7 @@ impl Mailer {
 
         let reply_to = format!("{} <{}>", name, from);
 
-        let creds = Credentials::new(user.clone(), password.clone());
+        let creds = Credentials::new(user, password);
 
         // Open a remote connection to gmail
         let mailer = SmtpTransport::relay(&host)
@@ -114,12 +120,7 @@ impl Mailer {
             .credentials(creds)
             .build();
 
-        Mailer {
-            //user,
-            //password,
-            reply_to,
-            mailer,
-        }
+        Mailer { reply_to, mailer }
     }
 
     // pub fn set_host(&mut self, host: &str) -> &mut Self {
@@ -133,35 +134,52 @@ impl Mailer {
     //     self
     // }
 
-    pub fn send_html_email<T:Template>(&self, to: &str, subject: &str, body: &T) ->Result<(), EmailError> {
-        
-        let html = match body.render() {
-            Ok(v)=>v,
-            Err(e) =>return Err(EmailError::HtmlEmailError(e.to_string())),
-        };
+    pub fn send_html_email<T: Template>(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &T,
+    ) -> Result<(), MailerError> {
+        let html = body.render()?;
 
-        return self.send_base_email(to, subject, &html, ContentType::TEXT_HTML);
+        let email = Message::builder()
+            .from(self.reply_to.parse().unwrap())
+            .reply_to(self.reply_to.parse().unwrap())
+            .to(to.parse().unwrap())
+            .subject(subject)
+            .header(ContentType::TEXT_HTML)
+            .body(html)?;
+
+        match self.mailer.send(&email) {
+            Ok(_) => eprintln!("HTML email sent successfully!"),
+            Err(e) => return Err(MailerError::SendError(e.to_string())),
+        }
+
+        Ok(())
     }
 
-    pub fn send_email(&self, to: &str, subject: &str, body: &str) ->Result<(), EmailError> {
-         
-
-        return self.send_base_email(to, subject, body, ContentType::TEXT_PLAIN)
+    pub fn send_email(&self, to: &str, subject: &str, body: &str) -> Result<(), MailerError> {
+        return self.send_base_email(to, subject, body, ContentType::TEXT_PLAIN);
     }
 
-    pub fn send_base_email(&self, to: &str, subject: &str, body: &str, content_type: ContentType) ->Result<(), EmailError> {
+    pub fn send_base_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        content_type: ContentType,
+    ) -> Result<(), MailerError> {
         let email = Message::builder()
             .from(self.reply_to.parse().unwrap())
             .reply_to(self.reply_to.parse().unwrap())
             .to(to.parse().unwrap())
             .subject(subject)
             .header(content_type)
-            .body(body.to_string())
-            .unwrap();
- 
+            .body(body.to_string())?;
+
         match self.mailer.send(&email) {
-            Ok(_) => println!("Email sent successfully!"),
-            Err(e) => return Err(EmailError::SendError(e.to_string())),
+            Ok(_) => eprintln!("Email sent successfully!"),
+            Err(e) => return Err(MailerError::SendError(e.to_string())),
         }
 
         Ok(())
