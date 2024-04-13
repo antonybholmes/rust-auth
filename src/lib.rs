@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
- 
+
 use password_auth::{generate_hash, verify_password, VerifyError};
 use rusty_paseto::generic::PasetoClaimError;
 use sqlx::{FromRow, Pool, Sqlite};
@@ -26,6 +26,71 @@ const FIND_USER_BY_EMAIL_SQL: &'static str =
 
 const CREATE_USER_SQL: &'static str =
     "INSERT INTO users (uuid, username, email, password) VALUES($1, $2, $3, $4)";
+
+#[derive(Debug, Clone)]
+pub enum AuthError {
+    UserDoesNotExistError(String),
+    UserAlreadyExistsError(String),
+    CouldNotCreateUserError(String),
+    DatabaseError(String),
+    CryptographyError(String),
+    JWTError(String),
+    PasswordError(String),
+}
+
+impl std::error::Error for AuthError {}
+
+impl From<time::error::Format> for AuthError {
+    fn from(error: time::error::Format) -> Self {
+        AuthError::JWTError(error.to_string())
+    }
+}
+
+impl From<PasetoClaimError> for AuthError {
+    fn from(error: PasetoClaimError) -> Self {
+        AuthError::JWTError(error.to_string())
+    }
+}
+
+impl From<VerifyError> for AuthError {
+    fn from(error: VerifyError) -> Self {
+        AuthError::PasswordError(error.to_string())
+    }
+}
+
+impl From<JoinError> for AuthError {
+    fn from(error: JoinError) -> Self {
+        AuthError::PasswordError(error.to_string())
+    }
+}
+
+//impl std::error::Error for AuthError {}
+
+impl Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::UserDoesNotExistError(user) => {
+                write!(f, "account for {} does not exist", user)
+            }
+            AuthError::UserAlreadyExistsError(user) => {
+                write!(f, "acount for {} already exists", user)
+            }
+            AuthError::DatabaseError(error) => write!(f, "{}", error),
+            AuthError::CouldNotCreateUserError(error) => write!(f, "{}", error),
+            AuthError::CryptographyError(error) => write!(f, "{}", error),
+            AuthError::JWTError(error) => write!(f, "{}", error),
+            AuthError::PasswordError(error) => write!(f, "{}", error),
+        }
+    }
+}
+
+impl IntoResponse for AuthError {
+    fn into_response(self) -> Response {
+        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+    }
+}
+
+pub type AuthResult<T> = std::result::Result<T, AuthError>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublicUser {
@@ -65,8 +130,8 @@ impl AuthUser for User {
 }
 
 impl User {
-    pub fn check_password(&self, pwd: &str) -> Result<(), AuthError>  {
-        Ok(verify_password(pwd, &self.password)?)
+    pub fn check_pwd(&self, pwd: &str) -> Result<(), AuthError> {
+        check_pwd(pwd, &self.password)
     }
 
     pub fn to_public(&self) -> PublicUser {
@@ -80,86 +145,23 @@ impl User {
     }
 }
 
-pub fn check_password(pwd: &str, hash: &str) -> Result<(), AuthError> {
+///
+/// Verify a password matches its hash
+///
+pub fn check_pwd(pwd: &str, hash: &str) -> Result<(), AuthError> {
     Ok(verify_password(pwd, hash)?)
 }
 
- 
+///
+/// Create a password hash
+///
+pub fn hash_pwd(pwd: &str) -> String {
+    return generate_hash(pwd);
+}
 
 pub fn create_otp(user: &User) -> String {
-    return generate_hash(&user.updated_on);
+    return hash_pwd(&user.updated_on);
 }
-
-#[derive(Debug, Clone)]
-pub enum AuthError {
-    UserDoesNotExistError(String),
-    UserAlreadyExistsError(String),
-    CouldNotCreateUserError(String),
-    DatabaseError(String),
-    CryptographyError(String),
-    JWTError(String),
-    PasswordError(String),
-}
-
-impl std::error::Error for AuthError {}
-
-impl From<time::error::Format> for AuthError {
-    fn from(error: time::error::Format) -> Self {
-        AuthError::JWTError(error.to_string())
-    }
-}
-
-impl From<PasetoClaimError> for AuthError {
-    fn from(error: PasetoClaimError) -> Self {
-        AuthError::JWTError(error.to_string())
-    }
-}
-
-impl From<VerifyError> for AuthError {
-    fn from(error: VerifyError) -> Self {
-        AuthError::PasswordError(error.to_string())
-    }
-}
-
-// impl From<BcryptError> for AuthError {
-//     fn from(error: BcryptError) -> Self {
-//         AuthError::PasswordError(error.to_string())
-//     }
-// }
-
-impl From<JoinError> for AuthError {
-    fn from(error: JoinError) -> Self {
-        AuthError::PasswordError(error.to_string())
-    }
-}
-
-//impl std::error::Error for AuthError {}
-
-impl Display for AuthError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AuthError::UserDoesNotExistError(user) => {
-                write!(f, "account for {} does not exist", user)
-            }
-            AuthError::UserAlreadyExistsError(user) => {
-                write!(f, "acount for {} already exists", user)
-            }
-            AuthError::DatabaseError(error) => write!(f, "{}", error),
-            AuthError::CouldNotCreateUserError(error) => write!(f, "{}", error),
-            AuthError::CryptographyError(error) => write!(f, "{}", error),
-            AuthError::JWTError(error) => write!(f, "{}", error),
-            AuthError::PasswordError(error) => write!(f, "{}", error),
-        }
-    }
-}
-
-impl IntoResponse for AuthError {
-    fn into_response(self) -> Response {
-        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
-    }
-}
-
-pub type AuthResult<T> = std::result::Result<T, AuthError>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Credentials {
