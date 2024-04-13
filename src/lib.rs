@@ -4,7 +4,8 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use bcrypt::BcryptError;
+ 
+use password_auth::{generate_hash, verify_password, VerifyError};
 use rusty_paseto::generic::PasetoClaimError;
 use sqlx::{FromRow, Pool, Sqlite};
 use tokio::task::JoinError;
@@ -64,8 +65,8 @@ impl AuthUser for User {
 }
 
 impl User {
-    pub fn check_password(&self, plain_pwd: &str) -> Result<bool, bcrypt::BcryptError> {
-        bcrypt::verify(plain_pwd, &self.password)
+    pub fn check_password(&self, pwd: &str) -> Result<(), AuthError>  {
+        Ok(verify_password(pwd, &self.password)?)
     }
 
     pub fn to_public(&self) -> PublicUser {
@@ -79,16 +80,14 @@ impl User {
     }
 }
 
-pub fn check_password(plain_pwd: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
-    bcrypt::verify(plain_pwd, hash)
+pub fn check_password(pwd: &str, hash: &str) -> Result<(), AuthError> {
+    Ok(verify_password(pwd, hash)?)
 }
 
-pub fn hash(password: &str) -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(password, bcrypt::DEFAULT_COST)
-}
+ 
 
-pub fn create_otp(user: &User) -> Result<String, bcrypt::BcryptError> {
-    return hash(&user.updated_on);
+pub fn create_otp(user: &User) -> String {
+    return generate_hash(&user.updated_on);
 }
 
 #[derive(Debug, Clone)]
@@ -116,11 +115,17 @@ impl From<PasetoClaimError> for AuthError {
     }
 }
 
-impl From<BcryptError> for AuthError {
-    fn from(error: BcryptError) -> Self {
+impl From<VerifyError> for AuthError {
+    fn from(error: VerifyError) -> Self {
         AuthError::PasswordError(error.to_string())
     }
 }
+
+// impl From<BcryptError> for AuthError {
+//     fn from(error: BcryptError) -> Self {
+//         AuthError::PasswordError(error.to_string())
+//     }
+// }
 
 impl From<JoinError> for AuthError {
     fn from(error: JoinError) -> Self {
@@ -166,8 +171,8 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    pub fn hash_password(&self) -> Result<String, bcrypt::BcryptError> {
-        hash(&self.password)
+    pub fn hash_password(&self) -> String {
+        generate_hash(&self.password)
     }
 }
 
@@ -245,14 +250,7 @@ impl UserDb {
 
         let user_id = uuid();
 
-        let hash = match user.hash_password() {
-            Ok(hash) => hash,
-            Err(_) => {
-                return Err(AuthError::CryptographyError(
-                    "error creating hash".to_string(),
-                ))
-            }
-        };
+        let hash = user.hash_password();
 
         let result = sqlx::query(&CREATE_USER_SQL)
             .bind(&user_id)

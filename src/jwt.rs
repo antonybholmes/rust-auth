@@ -186,7 +186,7 @@ pub fn reset_jwt(user: &User, key: &EncodingKey) -> AuthResult<String> {
     let claims: JwtClaims = JwtClaims {
         uuid: user.uuid.to_string(),
         token_type: TokenType::ResetPassword.to_string(),
-        otp: create_otp(user).unwrap(),
+        otp: create_otp(user),
         exp: expiration as usize,
     };
 
@@ -210,7 +210,7 @@ pub fn otp_jwt(
     basic_jwt(
         &user.uuid,
         token_type,
-        &create_otp(user).unwrap(),
+        &create_otp(user),
         key,
         expiration,
     )

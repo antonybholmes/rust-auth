@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 sys = { path = "../rust-sys" }
-bcrypt = "0.15.0"
+ 
 chrono = "0.4.34"
 jsonwebtoken = "9.2.0"
 
@@ -37,3 +37,4 @@ rand = "0.8.5"
 ed25519-dalek = {version="2.1.1", features = ["rand_core"]}
 hex = "0.4.3"
 time = "0.3.36"
+password-auth = "1.0.0"
