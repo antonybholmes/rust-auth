@@ -46,6 +46,13 @@ pub struct EmailVerificationWebTemplate {
     pub do_not_reply: String,
 }
 
+#[derive(Template)]
+#[template(path = "email/verified.html")]
+pub struct EmailVerifiedTemplate {
+    pub name: String,
+    pub do_not_reply: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum MailerError {
     SendError(String),

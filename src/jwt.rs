@@ -18,7 +18,13 @@ pub const TOKEN_TYPE_REFRESH_TTL_HOURS: i64 = 24;
 pub const TOKEN_TYPE_ACCESS_TTL_HOURS: i64 = 1;
 pub const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+pub const TOKEN_PASSWORDLESS: &str = "passwordless";
+pub const TOKEN_VERIFY_EMAIL: &str = "verify_email";
+
+
+
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum TokenType {
     Refresh,
     Access,
@@ -32,9 +38,9 @@ impl fmt::Display for TokenType {
         match self {
             TokenType::Refresh => write!(f, "refresh"),
             TokenType::Access => write!(f, "access"),
-            TokenType::Passwordless => write!(f, "passwordless"),
+            TokenType::Passwordless => write!(f, "{}", TOKEN_PASSWORDLESS),
             TokenType::ResetPassword => write!(f, "reset_password"),
-            TokenType::VerifyEmail => write!(f, "verify_email"),
+            TokenType::VerifyEmail => write!(f, "{}", TOKEN_VERIFY_EMAIL),
         }
     }
 }
@@ -47,8 +53,6 @@ pub struct JwtClaims {
     pub exp: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct JwtToken(pub JwtClaims);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -57,6 +61,9 @@ pub struct AppState {
     pub jwt_public_key: DecodingKey,
     pub jwt_private_key: EncodingKey
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JwtToken(pub JwtClaims);
 
 #[async_trait]
 impl<S> FromRequestParts<S> for JwtToken
@@ -259,7 +266,7 @@ pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
  
     match encode(&header, claims, key) {
         Ok(jwt) => Ok(jwt),
-        Err(err) => Err(AuthError::JWTError(err.to_string())),
+        Err(err) => Err(AuthError::TokenError(err.to_string())),
     }
 }
 
@@ -276,15 +283,15 @@ pub fn decode_jwt(token: String, key: &DecodingKey) -> AuthResult<JwtClaims> {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {
             jsonwebtoken::errors::ErrorKind::InvalidSignature => {
-                Err(AuthError::JWTError(format!("invalid jwt signature")))
+                Err(AuthError::TokenError(format!("invalid jwt signature")))
             }
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                Err(AuthError::JWTError(format!("expired jwt token")))
+                Err(AuthError::TokenError(format!("expired jwt token")))
             }
             jsonwebtoken::errors::ErrorKind::InvalidToken => {
-                Err(AuthError::JWTError(format!("invalid jwt token")))
+                Err(AuthError::TokenError(format!("invalid jwt token")))
             }
-            _ => Err(AuthError::JWTError(format!("{}", err))),
+            _ => Err(AuthError::TokenError(format!("{}", err))),
         },
     }
 }

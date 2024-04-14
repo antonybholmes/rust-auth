@@ -6,7 +6,7 @@ use axum::{
 };
 
 use password_auth::{generate_hash, verify_password, VerifyError};
-use rusty_paseto::generic::PasetoClaimError;
+use rusty_paseto::generic::{GenericBuilderError, PasetoClaimError};
 use sqlx::{FromRow, Pool, Sqlite};
 use tokio::task::JoinError;
 use uuid::Uuid;
@@ -23,6 +23,8 @@ const FIND_USER_BY_UUID_SQL: &'static str = "SELECT id, uuid, first_name, last_n
 const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.username = $1 LIMIT 1";
 const FIND_USER_BY_EMAIL_SQL: &'static str =
     "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.email = $1 LIMIT 1";
+const EMAIL_VERIFIED_SQL: &'static str =
+    "UPDATE users SET email_verified = 1 WHERE users.uuid = $1";
 
 const CREATE_USER_SQL: &'static str =
     "INSERT INTO users (uuid, username, email, password) VALUES($1, $2, $3, $4)";
@@ -34,7 +36,7 @@ pub enum AuthError {
     CouldNotCreateUserError(String),
     DatabaseError(String),
     CryptographyError(String),
-    JWTError(String),
+    TokenError(String),
     PasswordError(String),
 }
 
@@ -42,13 +44,13 @@ impl std::error::Error for AuthError {}
 
 impl From<time::error::Format> for AuthError {
     fn from(error: time::error::Format) -> Self {
-        AuthError::JWTError(error.to_string())
+        AuthError::TokenError(error.to_string())
     }
 }
 
 impl From<PasetoClaimError> for AuthError {
     fn from(error: PasetoClaimError) -> Self {
-        AuthError::JWTError(error.to_string())
+        AuthError::TokenError(error.to_string())
     }
 }
 
@@ -61,6 +63,18 @@ impl From<VerifyError> for AuthError {
 impl From<JoinError> for AuthError {
     fn from(error: JoinError) -> Self {
         AuthError::PasswordError(error.to_string())
+    }
+}
+
+impl From<GenericBuilderError> for AuthError {
+    fn from(error: GenericBuilderError) -> Self {
+        AuthError::PasswordError(error.to_string())
+    }
+}
+
+impl From<sqlx::Error> for AuthError {
+    fn from(error: sqlx::Error) -> Self {
+        AuthError::DatabaseError(error.to_string())
     }
 }
 
@@ -78,7 +92,7 @@ impl Display for AuthError {
             AuthError::DatabaseError(error) => write!(f, "{}", error),
             AuthError::CouldNotCreateUserError(error) => write!(f, "{}", error),
             AuthError::CryptographyError(error) => write!(f, "{}", error),
-            AuthError::JWTError(error) => write!(f, "{}", error),
+            AuthError::TokenError(error) => write!(f, "{}", error),
             AuthError::PasswordError(error) => write!(f, "{}", error),
         }
     }
@@ -148,7 +162,7 @@ impl User {
 ///
 /// Verify a password matches its hash
 ///
-pub fn check_pwd(pwd: &str, hash: &str) -> Result<(), AuthError> {
+pub fn check_pwd(pwd: impl AsRef<[u8]>, hash: &str) -> Result<(), AuthError> {
     Ok(verify_password(pwd, hash)?)
 }
 
@@ -194,7 +208,7 @@ impl UserDb {
         Self { pool }
     }
 
-    pub async fn find_user_by_uuid(&self, uuid: &str) -> AuthResult<Option<User>> {
+    pub async fn find_user_by_uuid(&self, uuid: &str) -> AuthResult<User> {
         eprintln!("find_user_by_uuid");
 
         match sqlx::query_as::<_, User>(FIND_USER_BY_UUID_SQL)
@@ -202,7 +216,7 @@ impl UserDb {
             .fetch_one(&self.pool)
             .await
         {
-            Ok(user) => Ok(Some(user)),
+            Ok(user) => Ok(user),
             Err(_) => Err(AuthError::UserDoesNotExistError(uuid.to_string())),
         }
     }
@@ -254,17 +268,27 @@ impl UserDb {
 
         let hash = user.hash_password();
 
-        let result = sqlx::query(&CREATE_USER_SQL)
+        match sqlx::query(&CREATE_USER_SQL)
             .bind(&user_id)
             .bind(&user.username)
             .bind(&user.username)
             .bind(hash)
             .execute(&self.pool)
-            .await;
-
-        match result {
+            .await
+        {
             Ok(_) => self.find_user_by_username(&user.username).await,
             Err(_) => Err(AuthError::CouldNotCreateUserError(user.username.clone())),
+        }
+    }
+
+    pub async fn user_verified(&self, uuid: &str) -> AuthResult<()> {
+        match sqlx::query(&EMAIL_VERIFIED_SQL)
+            .bind(uuid)
+            .execute(&self.pool)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => Err(AuthError::DatabaseError(err.to_string())),
         }
     }
 
