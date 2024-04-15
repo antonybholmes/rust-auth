@@ -21,6 +21,11 @@ mod tests;
 
 //const USER_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users";
 
+const FIND_USER_BY_ID_SQL: &'static str = r#"SELECT
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on, can_signin, email_verified
+FROM users
+WHERE users.uuid = $1 OR users.username = $1 OR users.email = $1 LIMIT 1"#;
+
 const FIND_USER_BY_UUID_SQL: &'static str = r#"SELECT
 id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on, can_signin, email_verified
 FROM users
@@ -36,9 +41,14 @@ id, uuid, first_name, last_name, username, email, password, strftime('%s', updat
 FROM users
 WHERE users.email = $1 LIMIT 1"#;
 
-
 const EMAIL_VERIFIED_SQL: &'static str =
-    "UPDATE users SET email_verified = 1 WHERE users.uuid = $1";
+    r#"UPDATE users SET email_verified = 1 WHERE users.uuid = $1"#;
+
+const UPDATE_PASSWORD_SQL: &'static str = r#"UPDATE users SET password = $2 WHERE users.uuid = $1"#;
+
+const UPDATE_USER_SQL: &'static str = r#"UPDATE users 
+SET username = $2, email = $3, first_name = $4, last_name = $5 
+WHERE users.uuid = $1"#;
 
 const CREATE_USER_SQL: &'static str =
     "INSERT INTO users (uuid, username, email, password) VALUES($1, $2, $3, $4)";
@@ -121,6 +131,7 @@ impl IntoResponse for AuthError {
 pub type AuthResult<T> = std::result::Result<T, AuthError>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicUser {
     pub uuid: String,
     pub first_name: String,
@@ -191,11 +202,18 @@ pub fn create_otp(user: &User) -> String {
     return hash_pwd(&user.updated_on);
 }
 
+pub fn check_otp_valid(user: &User, otp: &str) -> bool {
+    return check_pwd(&user.updated_on, otp).is_ok();
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Credentials {
     pub username: String,
     pub password: String,
-    #[serde(rename(deserialize = "callbackUrl"))]
+    pub email: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
     pub callback_url: Option<String>,
     pub url: Option<String>,
 }
@@ -231,7 +249,7 @@ impl UserDb {
             .await
         {
             Ok(user) => Ok(user),
-            Err(_) => Err(AuthError::UserDoesNotExistError(uuid.to_string())),
+            _ => Err(AuthError::UserDoesNotExistError(uuid.to_string())),
         }
     }
 
@@ -244,10 +262,7 @@ impl UserDb {
             .await
         {
             Ok(user) => Ok(user),
-            Err(err) => {
-                eprint!("{}", err);
-                self.find_user_by_email(username).await
-            }
+            _ => Err(AuthError::UserDoesNotExistError(username.to_string())),
         }
     }
 
@@ -260,12 +275,30 @@ impl UserDb {
             .await
         {
             Ok(user) => Ok(user),
-            Err(_) => Err(AuthError::UserDoesNotExistError(email.to_string())),
+            _ => Err(AuthError::UserDoesNotExistError(email.to_string())),
         }
     }
 
+    ///
+    /// Attempt to find user by either, username, email, or uuid
+    ///
+    pub async fn find_user_by_id(&self, id: &str) -> AuthResult<User> {
+        eprintln!("find_user_by_id {}", id);
+
+        match sqlx::query_as::<_, User>(FIND_USER_BY_ID_SQL)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+        {
+            Ok(user) => Ok(user),
+            _ => Err(AuthError::UserDoesNotExistError(id.to_string())),
+        }
+    }
+
+    
+
     pub async fn username_exists(&self, username: &str) -> bool {
-        match self.find_user_by_username(username).await {
+        match self.find_user_by_id(username).await {
             Ok(_) => true,
             Err(_) => false,
         }
@@ -290,7 +323,7 @@ impl UserDb {
             .execute(&self.pool)
             .await
         {
-            Ok(_) => self.find_user_by_username(&user.username).await,
+            Ok(_) => self.find_user_by_id(&user.username).await,
             Err(_) => Err(AuthError::CouldNotCreateUserError(user.username.clone())),
         }
     }
@@ -298,6 +331,42 @@ impl UserDb {
     pub async fn user_verified(&self, uuid: &str) -> AuthResult<()> {
         match sqlx::query(&EMAIL_VERIFIED_SQL)
             .bind(uuid)
+            .execute(&self.pool)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => Err(AuthError::DatabaseError(err.to_string())),
+        }
+    }
+
+    pub async fn update_password(&self, uuid: &str, pwd: &str) -> AuthResult<()> {
+        let hash = hash_pwd(pwd);
+
+        match sqlx::query(&UPDATE_PASSWORD_SQL)
+            .bind(uuid)
+            .bind(hash)
+            .execute(&self.pool)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => Err(AuthError::DatabaseError(err.to_string())),
+        }
+    }
+
+    pub async fn update_user(
+        &self,
+        uuid: &str,
+        username: &str,
+        email: &str,
+        first_name: &str,
+        last_name: &str,
+    ) -> AuthResult<()> {
+        match sqlx::query(&UPDATE_USER_SQL)
+            .bind(uuid)
+            .bind(username)
+            .bind(email)
+            .bind(first_name)
+            .bind(last_name)
             .execute(&self.pool)
             .await
         {

@@ -54,6 +54,29 @@ pub struct EmailVerifiedTemplate {
     pub do_not_reply: String,
 }
 
+#[derive(Template)]
+#[template(path = "email/password/reset/web.html")]
+pub struct EmailResetPasswordWebTemplate {
+    pub name: String,
+    pub link: String,
+    pub time: String,
+    pub do_not_reply: String,
+}
+
+#[derive(Template)]
+#[template(path = "email/password/updated.html")]
+pub struct EmailPasswordUpdatedTemplate {
+    pub name: String,
+    pub do_not_reply: String,
+}
+
+#[derive(Template)]
+#[template(path = "email/account/updated.html")]
+pub struct EmailAccountUpdatedTemplate {
+    pub name: String,
+    pub do_not_reply: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum MailerError {
     SendError(String),

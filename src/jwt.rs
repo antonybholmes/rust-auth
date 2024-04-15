@@ -20,7 +20,7 @@ pub const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
 
 pub const TOKEN_PASSWORDLESS: &str = "passwordless";
 pub const TOKEN_VERIFY_EMAIL: &str = "verify_email";
-
+pub const TOKEN_RESET_PASSWORD: &str = "reset_password";
 
 
 
@@ -39,7 +39,7 @@ impl fmt::Display for TokenType {
             TokenType::Refresh => write!(f, "refresh"),
             TokenType::Access => write!(f, "access"),
             TokenType::Passwordless => write!(f, "{}", TOKEN_PASSWORDLESS),
-            TokenType::ResetPassword => write!(f, "reset_password"),
+            TokenType::ResetPassword => write!(f, "{}", TOKEN_RESET_PASSWORD),
             TokenType::VerifyEmail => write!(f, "{}", TOKEN_VERIFY_EMAIL),
         }
     }
@@ -184,7 +184,7 @@ pub fn verify_email_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
     short_jwt(uuid, &TokenType::VerifyEmail, key)
 }
 
-pub fn reset_jwt(user: &User, key: &EncodingKey) -> AuthResult<String> {
+pub fn reset_password_jwt(user: &User, key: &EncodingKey) -> AuthResult<String> {
     let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
         .expect("valid timestamp")
