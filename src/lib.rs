@@ -21,20 +21,22 @@ mod tests;
 
 //const USER_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users";
 
-const FIND_USER_BY_UUID_SQL: &'static str = "SELECT \
-id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on \
-FROM users \
-WHERE users.uuid = $1 LIMIT 1";
+const FIND_USER_BY_UUID_SQL: &'static str = r#"SELECT
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on, can_signin, email_verified
+FROM users
+WHERE users.uuid = $1 LIMIT 1"#;
 
-const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT \
-id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on \
-FROM \
-users WHERE users.username = $1 LIMIT 1";
+const FIND_USER_BY_USERNAME_SQL: &'static str = r#"SELECT
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on, can_signin, email_verified
+FROM users
+WHERE users.username = $1 LIMIT 1"#;
+
+const FIND_USER_BY_EMAIL_SQL: &'static str = r#"SELECT
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on, can_signin, email_verified
+FROM users
+WHERE users.email = $1 LIMIT 1"#;
 
 
-
-const FIND_USER_BY_EMAIL_SQL: &'static str =
-    "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.email = $1 LIMIT 1";
 const EMAIL_VERIFIED_SQL: &'static str =
     "UPDATE users SET email_verified = 1 WHERE users.uuid = $1";
 
