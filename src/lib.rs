@@ -19,8 +19,20 @@ pub mod jwt;
 pub mod paseto;
 mod tests;
 
-const FIND_USER_BY_UUID_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.uuid = $1 LIMIT 1";
-const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.username = $1 LIMIT 1";
+//const USER_SQL: &'static str = "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users";
+
+const FIND_USER_BY_UUID_SQL: &'static str = "SELECT \
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on \
+FROM users \
+WHERE users.uuid = $1 LIMIT 1";
+
+const FIND_USER_BY_USERNAME_SQL: &'static str = "SELECT \
+id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on \
+FROM \
+users WHERE users.username = $1 LIMIT 1";
+
+
+
 const FIND_USER_BY_EMAIL_SQL: &'static str =
     "SELECT id, uuid, first_name, last_name, username, email, password, strftime('%s', updated_on) as updated_on FROM users WHERE users.email = $1 LIMIT 1";
 const EMAIL_VERIFIED_SQL: &'static str =

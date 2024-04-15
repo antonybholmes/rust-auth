@@ -6,6 +6,7 @@ use lettre::{
     SmtpTransport, Transport,
 };
 
+pub const VALID_TEN_MINS: &str = "10 minutes";
 pub const DO_NOT_REPLY: &str = "Please do not reply to this message. It was sent from a notification-only email address that we don't monitor.";
 pub const TOKEN_PARAM: &str = "token";
 pub const URL_PARAM: &str = "url";
