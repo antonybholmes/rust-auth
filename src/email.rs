@@ -112,6 +112,14 @@ impl From<lettre::error::Error> for MailerError {
     }
 }
 
+impl From<lettre::transport::smtp::Error> for MailerError {
+    fn from(error: lettre::transport::smtp::Error) -> Self {
+        MailerError::SendError(error.to_string())
+    }
+}
+
+
+
 impl From<askama::Error> for MailerError {
     fn from(error: askama::Error) -> Self {
         MailerError::SendError(error.to_string())
@@ -181,10 +189,9 @@ impl Mailer {
             .header(ContentType::TEXT_HTML)
             .body(html)?;
 
-        match self.mailer.send(&email) {
-            Ok(_) => eprintln!("HTML email sent successfully!"),
-            Err(e) => return Err(MailerError::SendError(e.to_string())),
-        }
+        self.mailer.send(&email)?;
+
+        eprintln!("HTML email sent successfully!");
 
         Ok(())
     }
@@ -208,10 +215,9 @@ impl Mailer {
             .header(content_type)
             .body(body.to_string())?;
 
-        match self.mailer.send(&email) {
-            Ok(_) => eprintln!("Email sent successfully!"),
-            Err(e) => return Err(MailerError::SendError(e.to_string())),
-        }
+        self.mailer.send(&email)?;
+
+        eprintln!("Email sent successfully!");
 
         Ok(())
     }

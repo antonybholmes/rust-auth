@@ -130,27 +130,32 @@ impl IntoResponse for AuthError {
 
 pub type AuthResult<T> = std::result::Result<T, AuthError>;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PublicUser {
-    pub uuid: String,
-    pub first_name: String,
-    pub last_name: String,
-    pub username: String,
-    pub email: String,
-}
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// #[serde(rename_all = "camelCase")]
+// pub struct PublicUser {
+//     pub uuid: String,
+//     pub first_name: String,
+//     pub last_name: String,
+//     pub username: String,
+//     pub email: String,
+// }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, FromRow)]
 pub struct User {
+    #[serde(skip_serializing)]
+    pub id: i64,
     pub uuid: String,
     pub first_name: String,
     pub last_name: String,
     pub username: String,
     pub email: String,
+    #[serde(skip_serializing)]
     pub password: String,
+    #[serde(skip_serializing)]
     pub can_signin: bool,
+    #[serde(skip_serializing)]
     pub email_verified: bool,
-
+    #[serde(skip_serializing)]
     pub updated_on: String,
 }
 
@@ -173,15 +178,15 @@ impl User {
         check_pwd(pwd, &self.password)
     }
 
-    pub fn to_public(&self) -> PublicUser {
-        return PublicUser {
-            uuid: self.uuid.clone(),
-            first_name: self.first_name.clone(),
-            last_name: self.last_name.clone(),
-            username: self.username.clone(),
-            email: self.email.clone(),
-        };
-    }
+    // pub fn to_public(&self) -> PublicUser {
+    //     return PublicUser {
+    //         uuid: self.uuid.clone(),
+    //         first_name: self.first_name.clone(),
+    //         last_name: self.last_name.clone(),
+    //         username: self.username.clone(),
+    //         email: self.email.clone(),
+    //     };
+    // }
 }
 
 ///
@@ -206,7 +211,7 @@ pub fn check_otp_valid(user: &User, otp: &str) -> bool {
     return check_pwd(&user.updated_on, otp).is_ok();
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Credentials {
     pub username: String,
