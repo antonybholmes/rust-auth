@@ -21,7 +21,7 @@ pub const TOKEN_TYPE_SHORT_TIME_TTL_MINS: i64 = 10;
 pub const TOKEN_PASSWORDLESS: &str = "passwordless";
 pub const TOKEN_VERIFY_EMAIL: &str = "verify_email";
 pub const TOKEN_RESET_PASSWORD: &str = "reset_password";
-
+pub const TOKEN_ACCESS: &str = "access";
 
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
