@@ -1,18 +1,13 @@
 use std::fmt;
 
-use axum::{
-    async_trait,
-    extract::{FromRef, FromRequestParts},
-    http::{header::AUTHORIZATION, request::Parts, StatusCode},
-};
+
 
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 use serde::{Deserialize, Serialize};
- 
 
-use crate::{create_otp, email::Mailer, AuthError, AuthResult, User, UserDb};
+use crate::{create_otp, AuthError, AuthResult, User};
 
 pub const TOKEN_TYPE_REFRESH_TTL_HOURS: i64 = 24;
 pub const TOKEN_TYPE_ACCESS_TTL_HOURS: i64 = 1;
@@ -22,7 +17,6 @@ pub const TOKEN_PASSWORDLESS: &str = "passwordless";
 pub const TOKEN_VERIFY_EMAIL: &str = "verify_email";
 pub const TOKEN_RESET_PASSWORD: &str = "reset_password";
 pub const TOKEN_ACCESS: &str = "access";
-
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum TokenType {
@@ -54,51 +48,6 @@ pub struct JwtClaims {
 }
 
 
-#[derive(Clone)]
-pub struct AppState {
-    pub user_db: UserDb,
-    pub mailer: Mailer,
-    pub jwt_public_key: DecodingKey,
-    pub jwt_private_key: EncodingKey
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct JwtToken(pub JwtClaims);
-
-#[async_trait]
-impl<S> FromRequestParts<S> for JwtToken
-where
-    AppState: FromRef<S>,
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, String);
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let state = AppState::from_ref(state);
-
-        let auth_header = parts.headers.get(AUTHORIZATION);
-
-        let token = match auth_header {
-            Some(header_value) => match header_value.to_str() {
-                Ok(value) => match value.strip_prefix("Bearer ") {
-                    Some(token) => token,
-                    _ => {
-                        return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string()))
-                    }
-                },
-                _ => return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string())),
-            },
-            _ => return Err((StatusCode::UNAUTHORIZED, "bearer token missing".to_string())),
-        };
-
-        //&DecodingKey::from_secret(secret().as_bytes())
-
-        match decode::<JwtClaims>(&token, &state.jwt_public_key, &Validation::new(Algorithm::EdDSA)) {
-            Ok(data) => Ok(JwtToken(data.claims)),
-            Err(err) => return Err((StatusCode::UNAUTHORIZED, err.to_string())),
-        }
-    }
-}
 
 // #[derive(Debug, Deserialize, Serialize)]
 // pub struct JWTResp {
@@ -204,23 +153,13 @@ pub fn passwordless_jwt(uuid: &str, key: &EncodingKey) -> AuthResult<String> {
     short_jwt(uuid, &TokenType::Passwordless, key)
 }
 
-pub fn otp_jwt(
-    user: &User,
-    token_type: &TokenType,
-    key: &EncodingKey,
-) -> AuthResult<String> {
+pub fn otp_jwt(user: &User, token_type: &TokenType, key: &EncodingKey) -> AuthResult<String> {
     let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::minutes(TOKEN_TYPE_SHORT_TIME_TTL_MINS))
         .expect("valid timestamp")
         .timestamp();
 
-    basic_jwt(
-        &user.uuid,
-        token_type,
-        &create_otp(user),
-        key,
-        expiration,
-    )
+    basic_jwt(&user.uuid, token_type, &create_otp(user), key, expiration)
 }
 
 pub fn short_jwt(uuid: &str, token_type: &TokenType, key: &EncodingKey) -> AuthResult<String> {
@@ -263,7 +202,6 @@ pub fn basic_jwt(
 pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
     let header = Header::new(Algorithm::EdDSA);
 
- 
     match encode(&header, claims, key) {
         Ok(jwt) => Ok(jwt),
         Err(err) => Err(AuthError::TokenError(err.to_string())),
@@ -271,15 +209,10 @@ pub fn base_jwt(claims: &JwtClaims, key: &EncodingKey) -> AuthResult<String> {
 }
 
 pub fn decode_jwt(token: String, key: &DecodingKey) -> AuthResult<JwtClaims> {
- 
     let token: &str = token.trim_start_matches("Bearer").trim();
 
     // 👇 New!
-    match decode::<JwtClaims>(
-        &token,
-        key,
-        &Validation::new(Algorithm::EdDSA),
-    ) {
+    match decode::<JwtClaims>(&token, key, &Validation::new(Algorithm::EdDSA)) {
         Ok(token) => Ok(token.claims),
         Err(err) => match &err.kind() {
             jsonwebtoken::errors::ErrorKind::InvalidSignature => {

@@ -300,8 +300,6 @@ impl UserDb {
         }
     }
 
-    
-
     pub async fn username_exists(&self, username: &str) -> bool {
         match self.find_user_by_id(username).await {
             Ok(_) => true,
